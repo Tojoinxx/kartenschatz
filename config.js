@@ -1,5 +1,4 @@
 // Kartenschatz – Verbindung zu deinem Firebase-Projekt.
-// Diese Datei ersetzt die config.js in deinem GitHub-Repository.
 window.KARTENSCHATZ_CONFIG = {
   "apiKey": "AIzaSyAzs_8-BIV6Gw4s-Ji0gcXbrodiAUFYdFY",
   "authDomain": "kartenschatz-a929d.firebaseapp.com",
