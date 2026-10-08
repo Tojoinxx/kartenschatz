@@ -4,23 +4,34 @@ on:
   schedule:
     - cron: '23 22 * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: write
   pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: node scripts/jp-data.mjs
-      - name: Speichern
-        env:
-          GH_TOKEN: ${{ github.token }}
+          node-version: 22
+      - name: Daten holen
+        if: github.event_name != 'push' || hashFiles('jp/index.json') == ''
+        run: node scripts/jp-data.mjs
+      - name: Daten speichern
+        if: github.event_name != 'push' || hashFiles('jp/index.json') == ''
         run: |
           git config user.name "kartenschatz-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -28,4 +39,9 @@ jobs:
           if git diff --cached --quiet; then echo "keine Änderungen"; exit 0; fi
           git commit -m "Japanische Kartendaten aktualisiert"
           git push
-          gh api -X POST "repos/${{ github.repository }}/pages/builds" || true
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deploy
+        uses: actions/deploy-pages@v4
