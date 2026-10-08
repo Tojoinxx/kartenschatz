@@ -1,6 +1,6 @@
 // Kartenschatz service worker: keeps the app itself available offline.
 // Card images and the text-recognition files are left to the normal browser cache.
-const VERSION = '1.0.0-202610081755';
+const VERSION = '1.0.0-202610081915';
 const SHELL_CACHE = 'ks-shell-' + VERSION;
 const SHELL = ['./', './index.html', './app.js', './app.css', './config.js', './archivo.woff2', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
