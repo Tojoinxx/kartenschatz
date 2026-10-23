@@ -66,6 +66,51 @@ async function writeEnCards() {
   console.log(`${Object.keys(out).length} english sets with card pictures`);
 }
 
+// Cardmarket publishes a product list and a price guide (EUR) as public files – use them for sealed
+// products so displays and ETBs get European prices instead of US ones.
+const CM = process.env.CM_BASE || 'https://downloads.s3.cardmarket.com/productCatalog';
+async function cardmarketSealed() {
+  const status = { at: new Date().toISOString() };
+  const [list, guide] = await Promise.all([
+    json(`${CM}/productList/products_nonsingles_6.json`, 2).catch((e) => ((status.listError = e.message), null)),
+    json(`${CM}/priceGuide/price_guide_6.json`, 2).catch((e) => ((status.guideError = e.message), null)),
+  ]);
+  const products = list?.products || list?.items || (Array.isArray(list) ? list : null);
+  const guides = guide?.priceGuides || null;
+  status.products = products?.length || 0;
+  status.guides = guides?.length || 0;
+  status.sample = products?.slice(0, 3) || null;
+  if (!products?.length || !guides?.length) {
+    await writeFile(`${OUT}/cm-status.json`, JSON.stringify(status));
+    return;
+  }
+  const price = new Map(guides.map((g) => [g.idProduct, g]));
+  const norm = (x) => String(x || '').toLowerCase().replace(/pok[eé]mon/g, '').replace(/\(exclusive\)/g, '').replace(/[^a-z0-9]/g, '');
+  const byName = new Map();
+  for (const p of products) {
+    const k = norm(p.name);
+    if (!byName.has(k)) byName.set(k, []);
+    byName.get(k).push(p);
+  }
+  const out = {};
+  let matched = 0;
+  for (const g of dump.en) {
+    for (const [pid, name] of g.p) {
+      const hits = byName.get(norm(name.replace(/^[A-Za-z0-9.\-]+:\s*/, ''))) || [];
+      if (hits.length !== 1) continue;
+      const pg = price.get(hits[0].idProduct);
+      if (!pg) continue;
+      const r = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : undefined);
+      out[pid] = { id: hits[0].idProduct, t: r(pg.trend), a7: r(pg.avg7), a30: r(pg.avg30), l: r(pg.low) };
+      matched++;
+    }
+  }
+  status.matched = matched;
+  await writeFile(`${OUT}/cm-status.json`, JSON.stringify(status));
+  await writeFile(`${OUT}/cm-sealed.json`, JSON.stringify({ updated: new Date().toISOString().slice(0, 10), p: out }));
+  console.log(`cardmarket sealed prices: ${matched}`);
+}
+
 async function sealedPricesEn(into) {
   const groups = (await json(`${BASE}/3/groups`))?.results || [];
   const queue = [...groups];
@@ -154,6 +199,7 @@ async function main() {
   for (const s of Object.values(index.sets)) delete s.c;
   await sealedPricesEn(sealed);
   await writeEnCards().catch((e) => console.warn('english cards failed', e.message));
+  await cardmarketSealed().catch((e) => console.warn('cardmarket sealed failed', e.message));
   await writeFile(`${OUT}/sealed-prices.json`, JSON.stringify({ updated: index.updated, p: sealed }));
   console.log(`${Object.keys(sealed).length} sealed prices`);
   await writeFile(`${OUT}/index.json`, JSON.stringify(index));
