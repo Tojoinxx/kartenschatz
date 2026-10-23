@@ -54,7 +54,7 @@ const TYPE_RULES = [
   ['booster', /\bpack\b/],
   ['coll', /bundle/],
 ];
-const EXCLUDE = /^\w+ Energy \(|^Poke Ball$|Jumbo Card/i;
+const EXCLUDE = /^\w+ Energy \(|^Poke Ball$|Jumbo Card|^Code Card|Digital Bundle/i;
 
 export function classify(name) {
   const n = name.toLowerCase();
@@ -64,8 +64,8 @@ export function classify(name) {
 
 const GERMAN_TERMS = [
   [/Half Booster Boxe?s?\b/g, 'Display (halb)'],
-  [/Pokemon Center Elite Trainer Box/g, 'Pokémon Center Elite-Trainer-Box'],
-  [/Elite Trainer Box/g, 'Elite-Trainer-Box'],
+  [/Pokemon Center Elite Trainer Box/g, 'Pokémon Center Top-Trainer-Box'],
+  [/Elite Trainer Box/g, 'Top-Trainer-Box'],
   [/Booster Boxe?s?\b/g, 'Display'],
   [/Booster Bundle/g, 'Booster-Bundle'],
   [/Booster Pack/g, 'Booster'],

@@ -1,6 +1,6 @@
 // Builds jp/index.json + jp/sets/<set>.json: Japanese single cards (TCGplayer data via tcgcsv.com)
 // with product id (→ picture) and US market price. Runs nightly as a GitHub Action – no dependencies.
-import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { buildCatalog } from './sealed-catalog.mjs';
 
 const BASE = process.env.TCGCSV_BASE || 'https://tcgcsv.com/tcgplayer';
@@ -44,6 +44,28 @@ export function numKey(number) {
 export const setKey = (g) => String(g.abbreviation || /^([^:]+):/.exec(g.name)?.[1] || g.groupId).trim().toLowerCase();
 
 // English sealed products (category 3) – only products without a card number
+const enCards = [];
+
+/** Write jp/en/<tcgdex set id>.json for the English single cards (matched via TCGplayer group). */
+async function writeEnCards() {
+  const tpMap = JSON.parse(await readFile(new URL('./tcgplayer-sets.json', import.meta.url), 'utf8').catch(() => '{}'));
+  const enSets = (await json(`${process.env.TCGDEX_BASE || 'https://api.tcgdex.net/v2'}/en/sets`).catch(() => null)) || [];
+  const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const byName = new Map(enSets.map((x) => [norm(x.name), x.id]));
+  const out = {};
+  for (const { g, c } of enCards) {
+    const id = tpMap[String(g.groupId)] || byName.get(norm(g.name.replace(/^[A-Za-z0-9.\-]+:\s*/, ''))) || null;
+    if (!id) continue;
+    const prev = out[id] || {};
+    for (const [k, list] of Object.entries(c)) prev[k] = [...(prev[k] || []), ...list];
+    out[id] = prev;
+  }
+  await mkdir(`${OUT}/en`, { recursive: true });
+  for (const [id, c] of Object.entries(out)) await writeFile(`${OUT}/en/${encodeURIComponent(id.toLowerCase())}.json`, JSON.stringify({ c }));
+  await writeFile(`${OUT}/en/index.json`, JSON.stringify({ updated: new Date().toISOString().slice(0, 10), sets: Object.fromEntries(Object.keys(out).map((id) => [id.toLowerCase(), 1])) }));
+  console.log(`${Object.keys(out).length} english sets with card pictures`);
+}
+
 async function sealedPricesEn(into) {
   const groups = (await json(`${BASE}/3/groups`))?.results || [];
   const queue = [...groups];
@@ -52,9 +74,29 @@ async function sealedPricesEn(into) {
       const products = (await json(`${BASE}/3/${g.groupId}/products`).catch(() => null))?.results || [];
       const sealedProducts = products.filter((p) => !ext(p, 'Number'));
       addToDump('en', g, sealedProducts);
+      // single cards → picture fallback + TCGplayer price check for western cards
+      const singles = products.filter((p) => ext(p, 'Number'));
+      let cardPrices = null;
+      if (singles.length) {
+        cardPrices = (await json(`${BASE}/3/${g.groupId}/prices`).catch(() => null))?.results || [];
+        const normal = new Map();
+        const rev = new Map();
+        for (const pr of cardPrices) {
+          const v = pr.marketPrice ?? pr.midPrice ?? null;
+          if (v == null) continue;
+          const m = /reverse/i.test(pr.subTypeName || '') ? rev : normal;
+          if (!m.has(pr.productId) || v > m.get(pr.productId)) m.set(pr.productId, v);
+        }
+        const c = {};
+        for (const p of singles) {
+          const k = numKey(ext(p, 'Number'));
+          (c[k] = c[k] || []).push([p.productId, p.name, normal.get(p.productId) ?? null, rev.get(p.productId) ?? null]);
+        }
+        enCards.push({ g, c });
+      }
       const ids = new Set(sealedProducts.map((p) => p.productId));
       if (!ids.size) continue;
-      const prices = (await json(`${BASE}/3/${g.groupId}/prices`).catch(() => null))?.results || [];
+      const prices = cardPrices || (await json(`${BASE}/3/${g.groupId}/prices`).catch(() => null))?.results || [];
       for (const p of prices) {
         const v = p.marketPrice ?? p.midPrice ?? null;
         if (v != null && ids.has(p.productId) && (into[p.productId] == null || v > into[p.productId])) into[p.productId] = v;
@@ -111,6 +153,7 @@ async function main() {
   await Promise.all([worker(), worker(), worker(), worker()]);
   for (const s of Object.values(index.sets)) delete s.c;
   await sealedPricesEn(sealed);
+  await writeEnCards().catch((e) => console.warn('english cards failed', e.message));
   await writeFile(`${OUT}/sealed-prices.json`, JSON.stringify({ updated: index.updated, p: sealed }));
   console.log(`${Object.keys(sealed).length} sealed prices`);
   await writeFile(`${OUT}/index.json`, JSON.stringify(index));
