@@ -1,6 +1,7 @@
 // Builds jp/index.json + jp/sets/<set>.json: Japanese single cards (TCGplayer data via tcgcsv.com)
 // with product id (→ picture) and US market price. Runs nightly as a GitHub Action – no dependencies.
 import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { buildCatalog } from './sealed-catalog.mjs';
 
 const BASE = process.env.TCGCSV_BASE || 'https://tcgcsv.com/tcgplayer';
 const CAT = 85; // Pokémon Japan
@@ -21,6 +22,18 @@ async function json(url, tries = 3) {
   throw new Error('failed: ' + url);
 }
 
+const dump = { en: [], jp: [] };
+const releaseOf = (p) => (p.presaleInfo?.isPresale && p.presaleInfo?.releasedOn ? String(p.presaleInfo.releasedOn).slice(0, 10) : null);
+function addToDump(lang, g, sealedProducts) {
+  if (!sealedProducts.length) return;
+  dump[lang].push({
+    g: g.groupId,
+    n: g.name,
+    a: g.abbreviation || '',
+    d: (g.publishedOn || '').slice(0, 10),
+    p: sealedProducts.map((p) => [p.productId, p.name, releaseOf(p)]),
+  });
+}
 const ext = (p, name) => (p.extendedData || []).find((e) => e.name === name)?.value || null;
 // "237/193" → "237", "001/SV-P" → "1", "SV-P 001" → "1", "TG05/TG30" → "TG5"
 export function numKey(number) {
@@ -37,7 +50,9 @@ async function sealedPricesEn(into) {
   async function worker() {
     for (let g; (g = queue.shift()); ) {
       const products = (await json(`${BASE}/3/${g.groupId}/products`).catch(() => null))?.results || [];
-      const ids = new Set(products.filter((p) => !ext(p, 'Number')).map((p) => p.productId));
+      const sealedProducts = products.filter((p) => !ext(p, 'Number'));
+      addToDump('en', g, sealedProducts);
+      const ids = new Set(sealedProducts.map((p) => p.productId));
       if (!ids.size) continue;
       const prices = (await json(`${BASE}/3/${g.groupId}/prices`).catch(() => null))?.results || [];
       for (const p of prices) {
@@ -67,6 +82,7 @@ async function main() {
         const v = p.marketPrice ?? p.midPrice ?? null;
         if (v != null && (!price.has(p.productId) || v > price.get(p.productId))) price.set(p.productId, v);
       }
+      addToDump('jp', g, products.filter((p) => !ext(p, 'Number')));
       const c = {};
       for (const p of products) {
         const number = ext(p, 'Number');
@@ -98,6 +114,12 @@ async function main() {
   await writeFile(`${OUT}/sealed-prices.json`, JSON.stringify({ updated: index.updated, p: sealed }));
   console.log(`${Object.keys(sealed).length} sealed prices`);
   await writeFile(`${OUT}/index.json`, JSON.stringify(index));
+  // sealed product catalog incl. upcoming sets (presales with release date)
+  const catalog = await buildCatalog(dump).catch((e) => console.warn('catalog failed', e.message));
+  if (catalog) {
+    await writeFile(`${OUT}/sealed-catalog.json`, JSON.stringify(catalog));
+    console.log(`catalog: ${catalog.g.length} groups, ${catalog.p.length} products, ${catalog.p.filter((p) => p[6]).length} upcoming`);
+  }
   // exchange rate for the TCGplayer (USD) cross-check of Cardmarket prices
   try {
     const fx = await json(process.env.FX_URL || 'https://api.frankfurter.app/latest?from=USD&to=EUR', 2);

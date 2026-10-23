@@ -28,10 +28,10 @@ jobs:
         with:
           node-version: 22
       - name: Daten holen
-        if: github.event_name != 'push' || hashFiles('jp/index.json') == ''
+        if: github.event_name != 'push' || hashFiles('jp/sealed-catalog.json') == ''
         run: node scripts/jp-data.mjs
       - name: Daten speichern
-        if: github.event_name != 'push' || hashFiles('jp/index.json') == ''
+        if: github.event_name != 'push' || hashFiles('jp/sealed-catalog.json') == ''
         run: |
           git config user.name "kartenschatz-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
