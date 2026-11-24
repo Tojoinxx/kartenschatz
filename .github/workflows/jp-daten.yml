@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,5 +44,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
+      # GitHub's Pages API sometimes hiccups ("No artifacts named github-pages") – wait and try once more
       - id: deploy
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Kurz warten
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 90
+      - id: deploy2
+        if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v4
